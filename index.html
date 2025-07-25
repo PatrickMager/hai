@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload File ke Google Drive</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2c3e50;
+            --success-color: #2ecc71;
+            --error-color: #e74c3c;
+            --light-grey: #ecf0f1;
+            --dark-grey: #bdc3c7;
+            --warning-color: #f39c12;
+        }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; }
+        .container { display: flex; justify-content: center; align-items: center; height: 100%; padding: 20px; }
+        .upload-form { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1); text-align: center; width: 100%; max-width: 500px; transition: all 0.5s ease; }
+        .upload-form h2 { margin-top: 0; color: var(--secondary-color); }
+        .upload-button { background-color: var(--primary-color); color: white; padding: 15px 30px; border: none; border-radius: 10px; cursor: pointer; font-size: 18px; font-weight: bold; transition: background-color 0.3s ease; }
+        .upload-button:disabled { background-color: var(--dark-grey); cursor: not-allowed; }
+        .upload-button:hover:not(:disabled) { background-color: #2980b9; }
+        #file-input { display: none; }
+        #file-list { margin-top: 20px; text-align: left; }
+        .file-item { display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--light-grey); border-radius: 8px; margin-bottom: 10px; }
+        .file-info { flex-grow: 1; overflow: hidden; }
+        .file-name { font-weight: bold; color: var(--secondary-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .progress-container { width: 100%; background-color: var(--dark-grey); border-radius: 4px; margin-top: 5px; }
+        .progress-bar { width: 0%; height: 10px; background-color: var(--primary-color); border-radius: 4px; transition: width 0.5s ease-out; }
+        .progress-text { font-size: 12px; color: var(--secondary-color); }
+        .upload-warning-text { margin-top: 15px; color: var(--warning-color); font-weight: bold; font-size: 14px; }
+        #success-view { display: none; text-align: center; }
+        #success-view.visible { display: block; }
+        .checkmark { width: 80px; height: 80px; border-radius: 50%; display: block; stroke-width: 2; stroke: var(--success-color); stroke-miterlimit: 10; box-shadow: inset 0px 0px 0px var(--success-color); margin: 0 auto 20px auto; }
+        #success-view.visible .checkmark { animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both; }
+        .checkmark__circle { stroke-dasharray: 166; stroke-dashoffset: 166; stroke-width: 2; stroke-miterlimit: 10; stroke: var(--success-color); fill: none; }
+        #success-view.visible .checkmark__circle { animation: stroke .6s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
+        .checkmark__check { transform-origin: 50% 50%; stroke-dasharray: 48; stroke-dashoffset: 48; }
+        #success-view.visible .checkmark__check { animation: stroke .3s cubic-bezier(0.65, 0, 0.45, 1) .8s forwards; }
+        @keyframes stroke { 100% { stroke-dashoffset: 0; } }
+        @keyframes scale { 0%, 100% { transform: none; } 50% { transform: scale3d(1.1, 1.1, 1); } }
+        @keyframes fill { 100% { box-shadow: inset 0px 0px 0px 40px var(--success-color); } }
+        .whatsapp-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #25D366; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="upload-form">
+            <div id="upload-view">
+                <h2>Silahkan Upload File Disini</h2>
+                <input type="file" id="file-input" multiple>
+                <button class="upload-button" id="upload-btn" onclick="document.getElementById('file-input').click()">Pilih File</button>
+                <p id="upload-warning" class="upload-warning-text" style="display:none;">Silahkan tunggu sedang mengupload, jangan keluar atau tinggalkan halaman hingga upload selesai.</p>
+                <div id="file-list"></div>
+            </div>
+            <div id="success-view">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/><path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+                <h2>File Anda Telah Diupload</h2>
+                <p>Silahkan bisa lakukan konfirmasi.</p>
+                <a href="#" id="whatsapp-confirm" class="whatsapp-link" target="_blank">Konfirmasi via WhatsApp</a>
+            </div>
+        </div>
+    </div>
+    <script>
+        // --- KONFIGURASI FRONTEND ---
+        const BACKEND_URL = 'http://localhost:3000/upload'; // URL server backend Anda
+        const WHATSAPP_NUMBER = '6285186653812'; // Ganti dengan nomor Anda
+
+        const fileInput = document.getElementById('file-input');
+        const fileListContainer = document.getElementById('file-list');
+        const uploadView = document.getElementById('upload-view');
+        const successView = document.getElementById('success-view');
+        const whatsappLink = document.getElementById('whatsapp-confirm');
+        const uploadButton = document.getElementById('upload-btn');
+        const uploadWarning = document.getElementById('upload-warning');
+        
+        let filesToUpload = [];
+        let uploadedFileNames = [];
+        let totalFiles = 0;
+        let filesProcessed = 0;
+
+        fileInput.addEventListener('change', (event) => {
+            filesToUpload = Array.from(event.target.files);
+            if (filesToUpload.length === 0) return;
+            totalFiles = filesToUpload.length;
+            filesProcessed = 0;
+            uploadedFileNames = [];
+            fileListContainer.innerHTML = '';
+            uploadWarning.style.display = 'block';
+            uploadButton.disabled = true;
+            
+            filesToUpload.forEach((file, index) => {
+                const fileId = `file-${index}`;
+                addFileToList(file, fileId);
+            });
+            uploadNextFile();
+        });
+
+        async function uploadNextFile() {
+            if (filesToUpload.length === 0) return;
+            
+            const file = filesToUpload.shift();
+            const fileId = `file-${(totalFiles - filesToUpload.length - 1)}`;
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const progressBar = document.getElementById(`progress-${fileId}`);
+            const progressText = document.getElementById(`text-${fileId}`);
+            progressText.innerText = 'Mengunggah...';
+
+            try {
+                // Gunakan XMLHttpRequest untuk progress upload
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', BACKEND_URL, true);
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        const uploadedMB = (event.loaded / 1024 / 1024).toFixed(2);
+                        const totalMB = (event.total / 1024 / 1024).toFixed(2);
+                        progressText.innerText = `Mengunggah... ${percentComplete}% (${uploadedMB}MB / ${totalMB}MB)`;
+                    }
+                };
+
+                xhr.onload = () => {
+                    filesProcessed++;
+                    if (xhr.status === 200) {
+                        const result = JSON.parse(xhr.responseText);
+                        handleUploadSuccess(result, fileId);
+                    } else {
+                        handleUploadError(xhr.statusText, fileId);
+                    }
+                    checkAllUploadsFinished();
+                    uploadNextFile();
+                };
+
+                xhr.onerror = () => {
+                    filesProcessed++;
+                    handleUploadError('Kesalahan Jaringan.', fileId);
+                    checkAllUploadsFinished();
+                    uploadNextFile();
+                };
+
+                xhr.send(formData);
+
+            } catch (error) {
+                filesProcessed++;
+                handleUploadError(error.message, fileId);
+                checkAllUploadsFinished();
+                uploadNextFile();
+            }
+        }
+        
+        function checkAllUploadsFinished() {
+            if (filesProcessed === totalFiles) {
+                uploadWarning.style.display = 'none';
+                uploadButton.disabled = false;
+                if (uploadedFileNames.length > 0) {
+                    showSuccessView();
+                }
+            }
+        }
+
+        function addFileToList(file, fileId) {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.id = `item-${fileId}`;
+            const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
+            fileItem.innerHTML = `<div class="file-info"><div class="file-name">${file.name}</div><div class="progress-container"><div class="progress-bar" id="progress-${fileId}"></div></div><div class="progress-text" id="text-${fileId}">Menunggu giliran... ( ${fileSizeMB} MB)</div></div>`;
+            fileListContainer.appendChild(fileItem);
+        }
+
+        function handleUploadSuccess(result, fileId) {
+            if(result.success) uploadedFileNames.push(result.fileName);
+            const item = document.getElementById(`item-${fileId}`);
+            if (item) {
+                const progressBar = document.getElementById(`progress-${fileId}`);
+                progressBar.style.width = '100%';
+                progressBar.style.backgroundColor = 'var(--success-color)';
+                document.getElementById(`text-${fileId}`).innerText = 'Selesai';
+            }
+        }
+
+        function handleUploadError(error, fileId) {
+            const item = document.getElementById(`item-${fileId}`);
+            if (item) {
+                const progressBar = document.getElementById(`progress-${fileId}`);
+                progressBar.style.width = '100%';
+                progressBar.style.backgroundColor = 'var(--error-color)';
+                document.getElementById(`text-${fileId}`).innerText = `Gagal: ${error}`;
+                document.getElementById(`text-${fileId}`).style.color = 'var(--error-color)';
+            }
+        }
+        
+        function showSuccessView() {
+            uploadView.style.display = 'none';
+            successView.classList.add('visible');
+            updateWhatsAppLink();
+        }
+
+        function updateWhatsAppLink() {
+            const fileListString = uploadedFileNames.join(', ');
+            const message = `Halo, saya sudah mengupload file dengan nama: ${fileListString}. Mohon diperiksa, terima kasih.`;
+            const encodedMessage = encodeURIComponent(message);
+            whatsappLink.href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodedMessage}`;
+        }
+    </script>
+</body>
+</html>
